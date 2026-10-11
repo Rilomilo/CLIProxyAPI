@@ -81,13 +81,17 @@ func GetDevinModels() []*ModelInfo {
 	return WithDevinBuiltins(cloneModelInfos(staticDevinModels))
 }
 
-// LookupDevinModel looks up a model definition from the active Devin catalog.
-// Accepts both namespaced ("devin/model") and bare ("model") IDs.
+// LookupDevinModel looks up a model definition from upstream-fetched Devin models,
+// falling back to the active Devin catalog. Accepts both namespaced ("devin/model") and bare ("model") IDs.
 func LookupDevinModel(modelID string) *ModelInfo {
 	clean := strings.ToLower(strings.TrimSpace(modelID))
 	clean = strings.TrimPrefix(clean, "devin/")
 	if clean == "" {
 		return nil
+	}
+	// Upstream-fetched definitions already merge catalog thinking levels.
+	if m := lookupDevinUpstreamModel(clean); m != nil {
+		return m
 	}
 
 	devinCatalogStore.mu.RLock()
@@ -114,6 +118,9 @@ func LookupDevinModel(modelID string) *ModelInfo {
 	// Fallback: If clean is a thinking variant (e.g. claude-opus-5-low-fast or gpt-6-astra-high),
 	// look up its base model (e.g. claude-opus-5 or gpt-6-astra).
 	if base, _ := splitDevinModelID(clean); base != clean && base != "" {
+		if m := lookupDevinUpstreamModel(base); m != nil {
+			return m
+		}
 		for _, m := range models {
 			mClean := strings.ToLower(strings.TrimPrefix(m.ID, "devin/"))
 			if mClean == base {
@@ -318,6 +325,14 @@ func cleanDevinDisplayName(name string) string {
 	return trimmed
 }
 
+// devinPrivateModelNames gives readable IDs to models that upstream only exposes under
+// private identifiers. Request-time resolution maps them back to the private UID
+// (see specialDevinAliases in internal/runtime/executor/helps).
+var devinPrivateModelNames = map[string]string{
+	"model_private_11":              "claude-haiku-4-5",
+	"model_chat_gpt_4_1_2025_04_14": "gpt-4-1",
+}
+
 func aggregateDevinModels(models []*ModelInfo) []*ModelInfo {
 	type aggEntry struct {
 		model  *ModelInfo
@@ -332,6 +347,9 @@ func aggregateDevinModels(models []*ModelInfo) []*ModelInfo {
 			continue
 		}
 		cleanID := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(m.ID), "devin/"))
+		if name, ok := devinPrivateModelNames[cleanID]; ok {
+			cleanID = name
+		}
 		baseID, effort := splitDevinModelID(cleanID)
 		if baseID == "" {
 			baseID = cleanID

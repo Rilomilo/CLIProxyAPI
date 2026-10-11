@@ -600,3 +600,14 @@ func TestResolveDevinChatModelUID_AllCatalogModels(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveDevinChatModelUID_PrivateModelNames(t *testing.T) {
+	for model, want := range map[string]string{
+		"devin/claude-haiku-4-5": "MODEL_PRIVATE_11",
+		"devin/gpt-4-1":          "MODEL_CHAT_GPT_4_1_2025_04_14",
+	} {
+		if got := ResolveDevinChatModelUID(model, "", 0); got != want {
+			t.Errorf("ResolveDevinChatModelUID(%q) = %q, want %q", model, got, want)
+		}
+	}
+}
